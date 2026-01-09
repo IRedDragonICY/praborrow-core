@@ -2,6 +2,14 @@
 name = "praborrow-core"
 version = "0.1.0"
 edition = "2021"
+authors = ["ireddragonicy"]
+description = "Core primitives for the PraBorrow distributed systems framework. Implements Sovereign<T> for strict ownership enforcement across network boundaries."
+license = "MIT"
+repository = "https://github.com/ireddragonicy/praborrow-core"
+documentation = "https://docs.rs/praborrow-core"
+readme = "README.md"
+keywords = ["distributed", "ownership", "memory-safety", "systems"]
+categories = ["concurrency", "memory-management", "network-programming"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
