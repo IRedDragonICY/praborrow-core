@@ -13,10 +13,16 @@
 //! Uses `UnsafeCell` and `AtomicU8` for interior mutability with thread-safety.
 //! The `Send`/`Sync` implementations are safe when `T` is `Send`/`Sync`.
 
-use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::cell::UnsafeCell;
-use std::marker::PhantomData;
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+use alloc::string::{String, ToString};
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{AtomicU8, Ordering};
+use core::cell::UnsafeCell;
+use core::marker::PhantomData;
+use core::fmt;
 
 /// The state of a Sovereign resource.
 /// 0: Domestic (Local jurisdiction)
@@ -49,10 +55,10 @@ impl<T> Sovereign<T> {
     ///
     /// Once annexed, the resource cannot be accessed locally.
     /// Access attempts will result in a Sovereignty Violation (panic).
-    pub fn annex(&self) -> Result<(), String> {
+    pub fn annex(&self) -> Result<(), AnnexError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
-            return Err("Resource is already under foreign jurisdiction.".to_string());
+            return Err(AnnexError::AlreadyExiled);
         }
 
         // Diplomatically transition state
@@ -171,8 +177,8 @@ pub enum AnnexError {
     ProverError(String),
 }
 
-impl std::fmt::Display for AnnexError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for AnnexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AnnexError::AlreadyExiled => write!(f, "Resource is already under foreign jurisdiction"),
             AnnexError::VerificationFailed(msg) => write!(f, "Verification failed: {}", msg),
@@ -181,6 +187,7 @@ impl std::fmt::Display for AnnexError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for AnnexError {}
 
 /// Error returned when a lease operation fails.
@@ -197,30 +204,35 @@ pub struct Lease<T> {
     /// The holder's unique identifier.
     pub holder: u128,
     /// Duration of the lease.
-    pub duration: std::time::Duration,
+    pub duration: core::time::Duration,
     /// Phantom data for the resource type.
     _phantom: PhantomData<T>,
 }
 
 impl<T> Lease<T> {
     /// Creates a new lease.
-    pub fn new(holder: u128, duration: std::time::Duration) -> Self {
+    pub fn new(holder: u128, duration: core::time::Duration) -> Self {
         Self {
             holder,
             duration,
             _phantom: PhantomData,
         }
     }
+
+    /// Returns the duration of the lease.
+    pub fn duration(&self) -> core::time::Duration {
+        self.duration
+    }
 }
 
 /// Trait for distributed borrow operations.
 pub trait DistributedBorrow<T> {
     /// Attempt to acquire a lease on the resource.
-    fn try_hire(&self, candidate_id: u128, term: std::time::Duration) -> Result<Lease<T>, LeaseError>;
+    fn try_hire(&self, candidate_id: u128, term: core::time::Duration) -> Result<Lease<T>, LeaseError>;
 }
 
 impl<T> DistributedBorrow<T> for Sovereign<T> {
-    fn try_hire(&self, candidate_id: u128, term: std::time::Duration) -> Result<Lease<T>, LeaseError> {
+    fn try_hire(&self, candidate_id: u128, term: core::time::Duration) -> Result<Lease<T>, LeaseError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
             return Err(LeaseError::AlreadyLeased);
@@ -228,7 +240,7 @@ impl<T> DistributedBorrow<T> for Sovereign<T> {
         
         // Transition to exiled state (leased)
         self.state.store(SovereignState::Exiled as u8, Ordering::SeqCst);
-        Ok(Lease::new(candidate_id, term))
+        Ok(Lease::<T>::new(candidate_id, term))
     }
 }
 
