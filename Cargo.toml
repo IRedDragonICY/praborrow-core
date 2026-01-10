@@ -11,10 +11,9 @@ categories = ["concurrency", "memory-management", "network-programming"]
 
 [features]
 default = ["std"]
-std = ["serde/std", "tracing/std"]
+std = []
 
 [dependencies]
-serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
-tracing = { version = "0.1", default-features = false }
-thiserror = { version = "2.0.17", default-features = false }
-
+serde = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
