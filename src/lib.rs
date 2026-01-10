@@ -17,7 +17,7 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::cell::UnsafeCell;
@@ -42,6 +42,24 @@ pub struct Sovereign<T> {
     state: AtomicU8,
 }
 
+/// Error returned when accessing a Sovereign resource fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SovereigntyError {
+    /// Resource is under foreign jurisdiction (Exiled).
+    ForeignJurisdiction,
+}
+
+impl fmt::Display for SovereigntyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SovereigntyError::ForeignJurisdiction => write!(f, "SOVEREIGNTY VIOLATION: Resource is under foreign jurisdiction."),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SovereigntyError {}
+
 impl<T> Sovereign<T> {
     /// Creates a new Sovereign resource under domestic jurisdiction.
     pub fn new(value: T) -> Self {
@@ -55,6 +73,7 @@ impl<T> Sovereign<T> {
     ///
     /// Once annexed, the resource cannot be accessed locally.
     /// Access attempts will result in a Sovereignty Violation (panic).
+    #[must_use]
     pub fn annex(&self) -> Result<(), AnnexError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
@@ -83,6 +102,24 @@ impl<T> Sovereign<T> {
             0 => SovereignState::Domestic,
             _ => SovereignState::Exiled,
         }
+    }
+
+    /// Attempts to get a reference to the value, returning an error if Exiled.
+    pub fn try_get(&self) -> Result<&T, SovereigntyError> {
+        if self.state.load(Ordering::SeqCst) == SovereignState::Exiled as u8 {
+            return Err(SovereigntyError::ForeignJurisdiction);
+        }
+        // SAFETY: We verified the resource is domestic.
+        unsafe { Ok(&*self.inner.get()) }
+    }
+
+    /// Attempts to get a mutable reference to the value, returning an error if Exiled.
+    pub fn try_get_mut(&mut self) -> Result<&mut T, SovereigntyError> {
+        if self.state.load(Ordering::SeqCst) == SovereignState::Exiled as u8 {
+            return Err(SovereigntyError::ForeignJurisdiction);
+        }
+        // SAFETY: We verified resource is domestic and have &mut self.
+        unsafe { Ok(&mut *self.inner.get()) }
     }
 
     /// Checks if the resource is currently domestic.
@@ -228,6 +265,7 @@ impl<T> Lease<T> {
 /// Trait for distributed borrow operations.
 pub trait DistributedBorrow<T> {
     /// Attempt to acquire a lease on the resource.
+    #[must_use]
     fn try_hire(&self, candidate_id: u128, term: core::time::Duration) -> Result<Lease<T>, LeaseError>;
 }
 
