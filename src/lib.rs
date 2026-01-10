@@ -34,6 +34,29 @@ pub enum SovereignState {
     Exiled = 1,
 }
 
+/// A token that proves a resource has been returned to domestic jurisdiction.
+///
+/// This token is required to call `Sovereign::repatriate`. It can only be constructed
+/// by trusted system components (like the lease manager) that can guarantee the
+/// resource is safe to reclaim.
+pub struct RepatriationToken {
+    _private: (),
+}
+
+impl RepatriationToken {
+    /// Creates a new repatriation token.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because creating a token allows the holder to
+    /// repatriate a sovereign resource. The caller must guarantee that the
+    /// resource is indeed back in domestic jurisdiction and no longer accessed
+    /// remotely.
+    pub unsafe fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
 /// A wrapper that enforces ownership semantics across network boundaries.
 ///
 /// "Memory safety with sovereign integrity."
@@ -171,25 +194,12 @@ impl<T> Sovereign<T> {
 
     /// Repatriates a resource, transitioning it from Exiled back to Domestic.
     ///
-    /// # Safety
-    ///
-    /// This function is `unsafe` because calling it incorrectly can lead to
-    /// **split-brain ownership** - a catastrophic state where two nodes both
-    /// believe they own the resource.
-    ///
-    /// The caller MUST guarantee:
-    /// 1. The resource has been fully returned by the foreign node
-    /// 2. The foreign node has relinquished all access to the resource
-    /// 3. No in-flight network messages reference this resource
-    /// 4. The consensus protocol (if any) has confirmed the transfer
-    ///
-    /// Violating these invariants leads to data races and memory unsafety
-    /// in the distributed system.
+    /// Requires a `RepatriationToken` as proof that the resource is safe to reclaim.
     ///
     /// # Example
     ///
     /// ```
-    /// use praborrow_core::{Sovereign, SovereignState};
+    /// use praborrow_core::{Sovereign, SovereignState, RepatriationToken};
     ///
     /// let resource = Sovereign::new(42i32);
     /// resource.annex().unwrap();
@@ -197,11 +207,12 @@ impl<T> Sovereign<T> {
     ///
     /// // ... resource is sent to foreign node and returned ...
     ///
-    /// // SAFETY: We have confirmed the foreign node has released the resource
-    /// unsafe { resource.repatriate(); }
+    /// // SAFETY: construction of token implies safety verification
+    /// let token = unsafe { RepatriationToken::new() };
+    /// resource.repatriate(token);
     /// assert!(resource.is_domestic());
     /// ```
-    pub unsafe fn repatriate(&self) {
+    pub fn repatriate(&self, _token: RepatriationToken) {
         let previous = self.state.swap(SovereignState::Domestic as u8, Ordering::SeqCst);
         
         if previous == SovereignState::Exiled as u8 {
@@ -212,6 +223,7 @@ impl<T> Sovereign<T> {
             );
         }
     }
+
 
     /// Checks if the resource is currently domestic, panicking if not.
     ///
@@ -502,7 +514,9 @@ mod tests {
         assert!(s.is_exiled());
         
         // SAFETY: In test context, we control both sides
-        unsafe { s.repatriate(); }
+        // SAFETY: In test context, we control both sides
+        let token = unsafe { RepatriationToken::new() };
+        s.repatriate(token);
         assert!(s.is_domestic());
         
         // Should be able to access again
