@@ -121,7 +121,7 @@ impl<T> Sovereign<T> {
     ///
     /// Once annexed, the resource cannot be accessed locally.
     /// Access attempts will result in a Sovereignty Violation.
-    #[must_use]
+
     pub fn annex(&self) -> Result<(), AnnexError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
@@ -405,7 +405,7 @@ impl<T> Lease<T> {
 /// Trait for distributed borrow operations.
 pub trait DistributedBorrow<T> {
     /// Attempt to acquire a lease on the resource.
-    #[must_use]
+
     fn try_hire(&self, candidate_id: u128, term: core::time::Duration) -> Result<Lease<T>, LeaseError>;
 }
 
