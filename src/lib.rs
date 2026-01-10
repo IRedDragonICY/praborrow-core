@@ -18,11 +18,10 @@
 extern crate alloc;
 
 use alloc::string::String;
-use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicU8, Ordering};
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
-
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 /// The state of a Sovereign resource.
 /// 0: Domestic (Local jurisdiction)
@@ -80,8 +79,6 @@ pub enum SovereigntyError {
     ForeignJurisdiction,
 }
 
-
-
 impl<T> Sovereign<T> {
     /// Creates a new Sovereign resource under domestic jurisdiction.
     ///
@@ -128,14 +125,15 @@ impl<T> Sovereign<T> {
         }
 
         // Diplomatically transition state
-        self.state.store(SovereignState::Exiled as u8, Ordering::SeqCst);
-        
+        self.state
+            .store(SovereignState::Exiled as u8, Ordering::SeqCst);
+
         tracing::debug!(
             from = "Domestic",
             to = "Exiled",
             "Resource annexed to foreign jurisdiction"
         );
-        
+
         Ok(())
     }
 
@@ -212,8 +210,10 @@ impl<T> Sovereign<T> {
     /// assert!(resource.is_domestic());
     /// ```
     pub fn repatriate(&self, _token: RepatriationToken) {
-        let previous = self.state.swap(SovereignState::Domestic as u8, Ordering::SeqCst);
-        
+        let previous = self
+            .state
+            .swap(SovereignState::Domestic as u8, Ordering::SeqCst);
+
         if previous == SovereignState::Exiled as u8 {
             tracing::debug!(
                 from = "Exiled",
@@ -222,7 +222,6 @@ impl<T> Sovereign<T> {
             );
         }
     }
-
 
     /// Checks if the resource is currently domestic, panicking if not.
     ///
@@ -380,7 +379,7 @@ impl<T> Lease<T> {
         } else {
             duration
         };
-        
+
         Self {
             holder,
             duration,
@@ -404,18 +403,27 @@ impl<T> Lease<T> {
 /// Trait for distributed borrow operations.
 pub trait DistributedBorrow<T> {
     /// Attempt to acquire a lease on the resource.
-    fn try_hire(&self, candidate_id: u128, term: core::time::Duration) -> Result<Lease<T>, LeaseError>;
+    fn try_hire(
+        &self,
+        candidate_id: u128,
+        term: core::time::Duration,
+    ) -> Result<Lease<T>, LeaseError>;
 }
 
 impl<T> DistributedBorrow<T> for Sovereign<T> {
-    fn try_hire(&self, candidate_id: u128, term: core::time::Duration) -> Result<Lease<T>, LeaseError> {
+    fn try_hire(
+        &self,
+        candidate_id: u128,
+        term: core::time::Duration,
+    ) -> Result<Lease<T>, LeaseError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
             return Err(LeaseError::AlreadyLeased);
         }
-        
+
         // Transition to exiled state (leased)
-        self.state.store(SovereignState::Exiled as u8, Ordering::SeqCst);
+        self.state
+            .store(SovereignState::Exiled as u8, Ordering::SeqCst);
         Ok(Lease::<T>::new(candidate_id, term))
     }
 }
@@ -441,7 +449,7 @@ pub trait VerifiedAnnex<T> {
     /// use praborrow_core::{Sovereign, VerifiedAnnex};
     ///
     /// let resource = Sovereign::new(MyVerifiableStruct { balance: 100 });
-    /// 
+    ///
     /// // This will run SMT verification before annexing
     /// match resource.annex_verified() {
     ///     Ok(proof) => println!("Annexation proven safe!"),
@@ -510,13 +518,13 @@ mod tests {
         let s = Sovereign::new(42i32);
         s.annex().unwrap();
         assert!(s.is_exiled());
-        
+
         // SAFETY: In test context, we control both sides
         // SAFETY: In test context, we control both sides
         let token = unsafe { RepatriationToken::new() };
         s.repatriate(token);
         assert!(s.is_domestic());
-        
+
         // Should be able to access again
         assert_eq!(*s, 42);
     }
@@ -539,7 +547,10 @@ mod tests {
     fn test_try_get_exiled() {
         let s = Sovereign::new(42i32);
         s.annex().unwrap();
-        assert!(matches!(s.try_get(), Err(SovereigntyError::ForeignJurisdiction)));
+        assert!(matches!(
+            s.try_get(),
+            Err(SovereigntyError::ForeignJurisdiction)
+        ));
     }
 
     #[test]
@@ -553,7 +564,7 @@ mod tests {
     fn test_annex_error_display() {
         let e = AnnexError::AlreadyExiled;
         assert!(e.to_string().contains("foreign jurisdiction"));
-        
+
         let e = AnnexError::VerificationFailed("test".to_string());
         assert!(e.to_string().contains("test"));
     }
