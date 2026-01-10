@@ -62,6 +62,12 @@ impl std::error::Error for SovereigntyError {}
 
 impl<T> Sovereign<T> {
     /// Creates a new Sovereign resource under domestic jurisdiction.
+    ///
+    /// # Atomic Ordering
+    ///
+    /// Uses `SeqCst` ordering for maximum safety in distributed scenarios.
+    /// This ensures all threads see state changes in a consistent order,
+    /// which is critical for ownership semantics across network boundaries.
     pub fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
@@ -69,10 +75,30 @@ impl<T> Sovereign<T> {
         }
     }
 
+    /// Creates a new Sovereign resource that is already under foreign jurisdiction.
+    ///
+    /// This is useful for nodes receiving data that has been transferred from
+    /// another node - the resource starts in an Exiled state.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use praborrow_core::{Sovereign, SovereignState};
+    ///
+    /// let foreign_data = Sovereign::new_exiled(42i32);
+    /// assert!(foreign_data.is_exiled());
+    /// ```
+    pub fn new_exiled(value: T) -> Self {
+        Self {
+            inner: UnsafeCell::new(value),
+            state: AtomicU8::new(SovereignState::Exiled as u8),
+        }
+    }
+
     /// Annexes the resource, moving it to foreign jurisdiction.
     ///
     /// Once annexed, the resource cannot be accessed locally.
-    /// Access attempts will result in a Sovereignty Violation (panic).
+    /// Access attempts will result in a Sovereignty Violation.
     #[must_use]
     pub fn annex(&self) -> Result<(), AnnexError> {
         let current = self.state.load(Ordering::SeqCst);
@@ -82,14 +108,23 @@ impl<T> Sovereign<T> {
 
         // Diplomatically transition state
         self.state.store(SovereignState::Exiled as u8, Ordering::SeqCst);
+        
+        tracing::debug!(
+            from = "Domestic",
+            to = "Exiled",
+            "Resource annexed to foreign jurisdiction"
+        );
+        
         Ok(())
     }
 
     /// Returns a reference to the inner value without jurisdiction check.
     ///
     /// # Safety
+    ///
     /// This is safe because we're returning a shared reference and the caller
-    /// is responsible for ensuring the resource is domestic.
+    /// is responsible for ensuring the resource is domestic. Use `try_get()`
+    /// for safe access with jurisdiction verification.
     pub fn inner_ref(&self) -> &T {
         // SAFETY: We're only reading, and this is safe when called from
         // contexts that have already verified jurisdiction.
@@ -97,6 +132,7 @@ impl<T> Sovereign<T> {
     }
 
     /// Returns the current state of the resource.
+    #[inline]
     pub fn state(&self) -> SovereignState {
         match self.state.load(Ordering::SeqCst) {
             0 => SovereignState::Domestic,
@@ -104,9 +140,21 @@ impl<T> Sovereign<T> {
         }
     }
 
+    /// Returns `true` if the resource is under domestic jurisdiction.
+    #[inline]
+    pub fn is_domestic(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == SovereignState::Domestic as u8
+    }
+
+    /// Returns `true` if the resource is under foreign jurisdiction (exiled).
+    #[inline]
+    pub fn is_exiled(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == SovereignState::Exiled as u8
+    }
+
     /// Attempts to get a reference to the value, returning an error if Exiled.
     pub fn try_get(&self) -> Result<&T, SovereigntyError> {
-        if self.state.load(Ordering::SeqCst) == SovereignState::Exiled as u8 {
+        if self.is_exiled() {
             return Err(SovereigntyError::ForeignJurisdiction);
         }
         // SAFETY: We verified the resource is domestic.
@@ -115,16 +163,62 @@ impl<T> Sovereign<T> {
 
     /// Attempts to get a mutable reference to the value, returning an error if Exiled.
     pub fn try_get_mut(&mut self) -> Result<&mut T, SovereigntyError> {
-        if self.state.load(Ordering::SeqCst) == SovereignState::Exiled as u8 {
+        if self.is_exiled() {
             return Err(SovereigntyError::ForeignJurisdiction);
         }
         // SAFETY: We verified resource is domestic and have &mut self.
         unsafe { Ok(&mut *self.inner.get()) }
     }
 
-    /// Checks if the resource is currently domestic.
+    /// Repatriates a resource, transitioning it from Exiled back to Domestic.
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` because calling it incorrectly can lead to
+    /// **split-brain ownership** - a catastrophic state where two nodes both
+    /// believe they own the resource.
+    ///
+    /// The caller MUST guarantee:
+    /// 1. The resource has been fully returned by the foreign node
+    /// 2. The foreign node has relinquished all access to the resource
+    /// 3. No in-flight network messages reference this resource
+    /// 4. The consensus protocol (if any) has confirmed the transfer
+    ///
+    /// Violating these invariants leads to data races and memory unsafety
+    /// in the distributed system.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use praborrow_core::{Sovereign, SovereignState};
+    ///
+    /// let resource = Sovereign::new(42i32);
+    /// resource.annex().unwrap();
+    /// assert!(resource.is_exiled());
+    ///
+    /// // ... resource is sent to foreign node and returned ...
+    ///
+    /// // SAFETY: We have confirmed the foreign node has released the resource
+    /// unsafe { resource.repatriate(); }
+    /// assert!(resource.is_domestic());
+    /// ```
+    pub unsafe fn repatriate(&self) {
+        let previous = self.state.swap(SovereignState::Domestic as u8, Ordering::SeqCst);
+        
+        if previous == SovereignState::Exiled as u8 {
+            tracing::debug!(
+                from = "Exiled",
+                to = "Domestic",
+                "Resource repatriated to domestic jurisdiction"
+            );
+        }
+    }
+
+    /// Checks if the resource is currently domestic, panicking if not.
+    ///
+    /// Used internally by Deref/DerefMut. Prefer `try_get()` for non-panicking access.
     fn verify_jurisdiction(&self) {
-        if self.state.load(Ordering::SeqCst) == SovereignState::Exiled as u8 {
+        if self.is_exiled() {
             panic!("SOVEREIGNTY VIOLATION: Resource is under foreign jurisdiction.");
         }
     }
@@ -154,9 +248,29 @@ unsafe impl<T: Send> Send for Sovereign<T> {}
 unsafe impl<T: Sync> Sync for Sovereign<T> {}
 
 /// Protocol for enforcing constitutional invariants (runtime checks).
+///
+/// Types implementing this trait can validate their internal state against
+/// a set of invariants defined via the `#[derive(Constitution)]` macro.
 pub trait CheckProtocol {
-    /// Enforces all invariants, panicking if any are violated.
-    fn enforce_law(&self);
+    /// Enforces all invariants, returning an error if any are violated.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if all invariants are satisfied
+    /// - `Err(String)` containing a description of the violated invariant
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use praborrow_core::CheckProtocol;
+    ///
+    /// let data = MyStruct { value: -1 };
+    /// match data.enforce_law() {
+    ///     Ok(()) => println!("All invariants satisfied"),
+    ///     Err(e) => println!("Invariant violated: {}", e),
+    /// }
+    /// ```
+    fn enforce_law(&self) -> Result<(), String>;
 }
 
 /// A value carrying cryptographic proof of verification.
@@ -248,7 +362,23 @@ pub struct Lease<T> {
 
 impl<T> Lease<T> {
     /// Creates a new lease.
+    ///
+    /// # Duration Validation
+    ///
+    /// If `duration` is zero, it will be coerced to a minimum of 1 millisecond
+    /// to prevent immediate expiration edge cases.
     pub fn new(holder: u128, duration: core::time::Duration) -> Self {
+        // Prevent zero-duration leases which could cause immediate expiration
+        let duration = if duration.is_zero() {
+            tracing::warn!(
+                holder = holder,
+                "Zero-duration lease requested, coercing to 1ms minimum"
+            );
+            core::time::Duration::from_millis(1)
+        } else {
+            duration
+        };
+        
         Self {
             holder,
             duration,
@@ -257,8 +387,15 @@ impl<T> Lease<T> {
     }
 
     /// Returns the duration of the lease.
+    #[inline]
     pub fn duration(&self) -> core::time::Duration {
         self.duration
+    }
+
+    /// Returns the holder ID.
+    #[inline]
+    pub fn holder(&self) -> u128 {
+        self.holder
     }
 }
 
@@ -327,6 +464,16 @@ mod tests {
     fn test_sovereign_new() {
         let s = Sovereign::new(42i32);
         assert_eq!(s.state(), SovereignState::Domestic);
+        assert!(s.is_domestic());
+        assert!(!s.is_exiled());
+    }
+
+    #[test]
+    fn test_sovereign_new_exiled() {
+        let s = Sovereign::new_exiled(42i32);
+        assert_eq!(s.state(), SovereignState::Exiled);
+        assert!(s.is_exiled());
+        assert!(!s.is_domestic());
     }
 
     #[test]
@@ -347,6 +494,7 @@ mod tests {
         let s = Sovereign::new(42i32);
         assert!(s.annex().is_ok());
         assert_eq!(s.state(), SovereignState::Exiled);
+        assert!(s.is_exiled());
     }
 
     #[test]
@@ -357,11 +505,38 @@ mod tests {
     }
 
     #[test]
+    fn test_sovereign_repatriate() {
+        let s = Sovereign::new(42i32);
+        s.annex().unwrap();
+        assert!(s.is_exiled());
+        
+        // SAFETY: In test context, we control both sides
+        unsafe { s.repatriate(); }
+        assert!(s.is_domestic());
+        
+        // Should be able to access again
+        assert_eq!(*s, 42);
+    }
+
+    #[test]
     #[should_panic(expected = "SOVEREIGNTY VIOLATION")]
     fn test_sovereignty_violation() {
         let s = Sovereign::new(42i32);
         s.annex().unwrap();
         let _ = *s; // This should panic
+    }
+
+    #[test]
+    fn test_try_get_domestic() {
+        let s = Sovereign::new(42i32);
+        assert_eq!(*s.try_get().unwrap(), 42);
+    }
+
+    #[test]
+    fn test_try_get_exiled() {
+        let s = Sovereign::new(42i32);
+        s.annex().unwrap();
+        assert!(matches!(s.try_get(), Err(SovereigntyError::ForeignJurisdiction)));
     }
 
     #[test]
@@ -378,5 +553,19 @@ mod tests {
         
         let e = AnnexError::VerificationFailed("test".to_string());
         assert!(e.to_string().contains("test"));
+    }
+
+    #[test]
+    fn test_lease_zero_duration_coercion() {
+        let lease = Lease::<i32>::new(1, core::time::Duration::ZERO);
+        assert_eq!(lease.duration(), core::time::Duration::from_millis(1));
+    }
+
+    #[test]
+    fn test_lease_normal_duration() {
+        let duration = core::time::Duration::from_secs(10);
+        let lease = Lease::<i32>::new(1, duration);
+        assert_eq!(lease.duration(), duration);
+        assert_eq!(lease.holder(), 1);
     }
 }
