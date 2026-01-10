@@ -16,4 +16,5 @@ std = ["serde/std", "tracing/std"]
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 tracing = { version = "0.1", default-features = false }
+thiserror = { version = "1.0", default-features = false }
 

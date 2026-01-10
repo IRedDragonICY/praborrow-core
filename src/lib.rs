@@ -22,7 +22,7 @@ use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
-use core::fmt;
+
 
 /// The state of a Sovereign resource.
 /// 0: Domestic (Local jurisdiction)
@@ -42,23 +42,22 @@ pub struct Sovereign<T> {
     state: AtomicU8,
 }
 
+/// Error enforcing constitutional invariants.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum ConstitutionError {
+    #[error("Invariant violated: {0}")]
+    InvariantViolation(String),
+}
+
 /// Error returned when accessing a Sovereign resource fails.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum SovereigntyError {
     /// Resource is under foreign jurisdiction (Exiled).
+    #[error("SOVEREIGNTY VIOLATION: Resource is under foreign jurisdiction.")]
     ForeignJurisdiction,
 }
 
-impl fmt::Display for SovereigntyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SovereigntyError::ForeignJurisdiction => write!(f, "SOVEREIGNTY VIOLATION: Resource is under foreign jurisdiction."),
-        }
-    }
-}
 
-#[cfg(feature = "std")]
-impl std::error::Error for SovereigntyError {}
 
 impl<T> Sovereign<T> {
     /// Creates a new Sovereign resource under domestic jurisdiction.
@@ -257,7 +256,7 @@ pub trait CheckProtocol {
     /// # Returns
     ///
     /// - `Ok(())` if all invariants are satisfied
-    /// - `Err(String)` containing a description of the violated invariant
+    /// - `Err(ConstitutionError)` containing a description of the violated invariant
     ///
     /// # Example
     ///
@@ -270,7 +269,7 @@ pub trait CheckProtocol {
     ///     Err(e) => println!("Invariant violated: {}", e),
     /// }
     /// ```
-    fn enforce_law(&self) -> Result<(), String>;
+    fn enforce_law(&self) -> Result<(), ConstitutionError>;
 }
 
 /// A value carrying cryptographic proof of verification.
@@ -318,35 +317,27 @@ impl<T: Clone> Clone for ProofCarrying<T> {
 }
 
 /// Error type for verified annexation operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum AnnexError {
     /// Resource is already under foreign jurisdiction.
+    #[error("Resource is already under foreign jurisdiction")]
     AlreadyExiled,
     /// SMT verification failed.
+    #[error("Verification failed: {0}")]
     VerificationFailed(String),
     /// Prover encountered an error.
+    #[error("Prover error: {0}")]
     ProverError(String),
 }
 
-impl fmt::Display for AnnexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AnnexError::AlreadyExiled => write!(f, "Resource is already under foreign jurisdiction"),
-            AnnexError::VerificationFailed(msg) => write!(f, "Verification failed: {}", msg),
-            AnnexError::ProverError(msg) => write!(f, "Prover error: {}", msg),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for AnnexError {}
-
 /// Error returned when a lease operation fails.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum LeaseError {
     /// Resource is already leased to another holder.
+    #[error("Resource is already leased to another holder")]
     AlreadyLeased,
     /// Resource is under foreign jurisdiction.
+    #[error("Resource is under foreign jurisdiction")]
     ForeignJurisdiction,
 }
 
