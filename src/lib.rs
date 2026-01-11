@@ -349,6 +349,9 @@ pub enum LeaseError {
     /// Resource is under foreign jurisdiction.
     #[error("Resource is under foreign jurisdiction")]
     ForeignJurisdiction,
+    /// Lease duration must be non-zero.
+    #[error("Lease duration must be non-zero")]
+    InvalidDuration,
 }
 
 /// Represents a lease on a Sovereign resource.
@@ -366,25 +369,17 @@ impl<T> Lease<T> {
     ///
     /// # Duration Validation
     ///
-    /// If `duration` is zero, it will be coerced to a minimum of 1 millisecond
-    /// to prevent immediate expiration edge cases.
-    pub fn new(holder: u128, duration: core::time::Duration) -> Self {
-        // Prevent zero-duration leases which could cause immediate expiration
-        let duration = if duration.is_zero() {
-            tracing::warn!(
-                holder = holder,
-                "Zero-duration lease requested, coercing to 1ms minimum"
-            );
-            core::time::Duration::from_millis(1)
-        } else {
-            duration
-        };
+    /// If `duration` is zero, returns `Err(LeaseError::InvalidDuration)`.
+    pub fn new(holder: u128, duration: core::time::Duration) -> Result<Self, LeaseError> {
+        if duration.is_zero() {
+            return Err(LeaseError::InvalidDuration);
+        }
 
-        Self {
+        Ok(Self {
             holder,
             duration,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Returns the duration of the lease.
@@ -424,7 +419,7 @@ impl<T> DistributedBorrow<T> for Sovereign<T> {
         // Transition to exiled state (leased)
         self.state
             .store(SovereignState::Exiled as u8, Ordering::SeqCst);
-        Ok(Lease::<T>::new(candidate_id, term))
+        Lease::<T>::new(candidate_id, term)
     }
 }
 
@@ -570,15 +565,15 @@ mod tests {
     }
 
     #[test]
-    fn test_lease_zero_duration_coercion() {
+    fn test_lease_zero_duration_fails() {
         let lease = Lease::<i32>::new(1, core::time::Duration::ZERO);
-        assert_eq!(lease.duration(), core::time::Duration::from_millis(1));
+        assert!(matches!(lease, Err(LeaseError::InvalidDuration)));
     }
 
     #[test]
     fn test_lease_normal_duration() {
         let duration = core::time::Duration::from_secs(10);
-        let lease = Lease::<i32>::new(1, duration);
+        let lease = Lease::<i32>::new(1, duration).unwrap();
         assert_eq!(lease.duration(), duration);
         assert_eq!(lease.holder(), 1);
     }
