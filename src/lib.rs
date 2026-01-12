@@ -66,6 +66,7 @@ pub struct Sovereign<T> {
 }
 
 /// Error enforcing constitutional invariants.
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum ConstitutionError {
     #[error("Invariant violated: {expression}. Values: {values:?}")]
@@ -76,6 +77,7 @@ pub enum ConstitutionError {
 }
 
 /// Error returned when accessing a Sovereign resource fails.
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum SovereigntyError {
     /// Resource is under foreign jurisdiction (Exiled).
@@ -354,6 +356,28 @@ impl<T> Sovereign<T> {
     }
 }
 
+impl<T: core::fmt::Debug> core::fmt::Debug for Sovereign<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let state = self.state();
+        match state {
+            SovereignState::Domestic => {
+                // SAFETY: We checked state is Domestic.
+                let val = unsafe { &*self.inner.get() };
+                f.debug_struct("Sovereign")
+                    .field("state", &state)
+                    .field("inner", val)
+                    .finish()
+            }
+            SovereignState::Exiled => {
+                f.debug_struct("Sovereign")
+                    .field("state", &state)
+                    .field("inner", &"<Inaccessible>")
+                    .finish()
+            }
+        }
+    }
+}
+
 impl<T> Deref for Sovereign<T> {
     type Target = T;
 
@@ -448,6 +472,7 @@ impl<T: Clone> Clone for ProofCarrying<T> {
 }
 
 /// Error type for verified annexation operations.
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum AnnexError {
     /// Resource is already under foreign jurisdiction.
@@ -462,6 +487,7 @@ pub enum AnnexError {
 }
 
 /// Error returned when a lease operation fails.
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum LeaseError {
     /// Resource is already leased to another holder.
