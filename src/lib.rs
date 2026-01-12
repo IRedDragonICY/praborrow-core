@@ -18,6 +18,7 @@
 extern crate alloc;
 
 use alloc::string::String;
+use alloc::collections::BTreeMap;
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
@@ -67,8 +68,11 @@ pub struct Sovereign<T> {
 /// Error enforcing constitutional invariants.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum ConstitutionError {
-    #[error("Invariant violated: {0}")]
-    InvariantViolation(String),
+    #[error("Invariant violated: {expression}. Values: {values:?}")]
+    InvariantViolation {
+        expression: String,
+        values: BTreeMap<String, String>,
+    },
 }
 
 /// Error returned when accessing a Sovereign resource fails.
@@ -87,6 +91,7 @@ impl<T> Sovereign<T> {
     /// Uses `SeqCst` ordering for maximum safety in distributed scenarios.
     /// This ensures all threads see state changes in a consistent order,
     /// which is critical for ownership semantics across network boundaries.
+    #[must_use = "Sovereign resources must be managed carefully"]
     pub fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
@@ -107,6 +112,7 @@ impl<T> Sovereign<T> {
     /// let foreign_data = Sovereign::new_exiled(42i32);
     /// assert!(foreign_data.is_exiled());
     /// ```
+    #[must_use = "Sovereign resources must be managed carefully"]
     pub fn new_exiled(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
@@ -118,6 +124,7 @@ impl<T> Sovereign<T> {
     ///
     /// Once annexed, the resource cannot be accessed locally.
     /// Access attempts will result in a Sovereignty Violation.
+    #[must_use = "Annexation result should be checked"]
     pub fn annex(&self) -> Result<(), AnnexError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
@@ -172,6 +179,7 @@ impl<T> Sovereign<T> {
     }
 
     /// Attempts to get a reference to the value, returning an error if Exiled.
+    #[must_use = "Check jurisdiction result"]
     pub fn try_get(&self) -> Result<&T, SovereigntyError> {
         if self.is_exiled() {
             return Err(SovereigntyError::ForeignJurisdiction);
@@ -181,6 +189,7 @@ impl<T> Sovereign<T> {
     }
 
     /// Attempts to get a mutable reference to the value, returning an error if Exiled.
+    #[must_use = "Check jurisdiction result"]
     pub fn try_get_mut(&mut self) -> Result<&mut T, SovereigntyError> {
         if self.is_exiled() {
             return Err(SovereigntyError::ForeignJurisdiction);
@@ -209,6 +218,7 @@ impl<T> Sovereign<T> {
     /// resource.repatriate(token);
     /// assert!(resource.is_domestic());
     /// ```
+    #[must_use = "Ensure resource is actually repatriated"]
     pub fn repatriate(&self, _token: RepatriationToken) {
         let previous = self
             .state
