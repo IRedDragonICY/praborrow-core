@@ -246,6 +246,7 @@ impl<T> Sovereign<T> {
     /// Checks if the resource is currently domestic, panicking if not.
     ///
     /// Used internally by Deref/DerefMut. Prefer `try_get()` for non-panicking access.
+    #[track_caller]
     fn verify_jurisdiction(&self) {
         if self.is_exiled() {
             panic!("SOVEREIGNTY VIOLATION: Resource is under foreign jurisdiction.");
@@ -349,12 +350,11 @@ impl<T: core::fmt::Debug> core::fmt::Debug for Sovereign<T> {
                     .field("inner", val)
                     .finish()
             }
-            SovereignState::Exiled => {
-                f.debug_struct("Sovereign")
-                    .field("state", &state)
-                    .field("inner", &"<Inaccessible>")
-                    .finish()
-            }
+            SovereignState::Exiled => f
+                .debug_struct("Sovereign")
+                .field("state", &state)
+                .field("inner", &"<Inaccessible>")
+                .finish(),
         }
     }
 }
@@ -362,6 +362,7 @@ impl<T: core::fmt::Debug> core::fmt::Debug for Sovereign<T> {
 impl<T> Deref for Sovereign<T> {
     type Target = T;
 
+    #[track_caller]
     fn deref(&self) -> &Self::Target {
         self.verify_jurisdiction();
         // SAFETY: We've verified the resource is domestic, so access is valid.
@@ -370,6 +371,7 @@ impl<T> Deref for Sovereign<T> {
 }
 
 impl<T> DerefMut for Sovereign<T> {
+    #[track_caller]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.verify_jurisdiction();
         // SAFETY: We've verified the resource is domestic and have &mut self.
