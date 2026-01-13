@@ -34,6 +34,15 @@ pub enum SovereignState {
     Exiled = 1,
 }
 
+impl core::fmt::Display for SovereignState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SovereignState::Domestic => f.write_str("Domestic"),
+            SovereignState::Exiled => f.write_str("Exiled"),
+        }
+    }
+}
+
 /// A token that proves a resource has been returned to domestic jurisdiction.
 ///
 /// This token is required to call `Sovereign::repatriate`. It can only be constructed
@@ -220,7 +229,6 @@ impl<T> Sovereign<T> {
     /// resource.repatriate(token);
     /// assert!(resource.is_domestic());
     /// ```
-    #[must_use = "Ensure resource is actually repatriated"]
     pub fn repatriate(&self, _token: RepatriationToken) {
         let previous = self
             .state
@@ -285,38 +293,11 @@ impl<T> Sovereign<T> {
 
     /// Returns a reference to the inner value if it matches the predicate.
     ///
-    /// Returns:
-    /// - `Ok(&T)` if domestic and predicate is true
+    /// # Returns
+    ///
+    /// - `Ok(Some(&T))` if domestic and predicate is true
+    /// - `Ok(None)` if domestic and predicate is false
     /// - `Err(ForeignJurisdiction)` if exiled
-    /// - `Ok` with Error if predicate is false (wait, filter usually returns Option,
-    ///   but here we want to return Result<&T, Error>... likely usually returns Option<&T>
-    ///   in standard library, but we need to encode the Sovereignty error.
-    ///   Actually, standard filter returns Option.
-    ///   Let's stick to the prompt: `filter<P>(&self, predicate: P) -> Result<&T, SovereigntyError>`
-    ///   This implies if predicate fails, maybe it should just return... what?
-    ///   Ah, `filter` on Option returns Option.
-    ///   If we follow the prompt strictly:
-    ///   "filter<P>(&self, predicate: P) -> Result<&T, SovereigntyError>"
-    ///   If predicate is false, what happens?
-    ///   Usually filter retains if true. If false, it discards.
-    ///   If we return `Result<&T, ...>`, we can't really express "discarded/None" easily without another error variant.
-    ///   However, user asked for `Result<&T, SovereigntyError>`.
-    ///   I will assume if predicate is false, it's NOT an error, but... logic breakdown.
-    ///   Actually, maybe the user implies it acts like `find`?
-    ///   Or maybe they accept `Result<Option<&T>, SovereigntyError>`?
-    ///   The prompt signature is `-> Result<&T, SovereigntyError>`.
-    ///   This might mean if predicate is false, it's considered an error? Or maybe I should return `Result<Option<&T>, ...>`?
-    ///   Let's look at the prompt again.
-    ///   `filter<P>(&self, predicate: P) -> Result<&T, SovereigntyError>`
-    ///   If I enforce this signature, I have no way to say "predicate check failed" other than returning T (which is wrong) or Error.
-    ///   I'll assume I should return `Result<Option<&T>, SovereigntyError>`, or if I must match the signature, maybe it returns the reference only if true, but what if false?
-    ///   Let's implement `Result<Option<&T>, SovereigntyError>` as it is the most logical "Monadic" interpretation (Inner is T, mapped to Option<T>).
-    ///   WAIT. The prompt EXPLICITLY says `-> Result<&T, SovereigntyError>`.
-    ///   That is very strange for a filter.
-    ///   Maybe it filters *failures*? No.
-    ///   I will implement `Result<Option<&T>, SovereigntyError>` and document why, or maybe `Result<&T, SovereigntyError>` where it errors if predicate false?
-    ///   Let's assume the user meant `Result<Option<&T>, SovereigntyError>` or `Option<&T>` (but that loses the error).
-    ///   I will stick to best judgement: `Result<Option<&T>, SovereigntyError>`.
     pub fn filter<P>(&self, predicate: P) -> Result<Option<&T>, SovereigntyError>
     where
         P: FnOnce(&T) -> bool,
