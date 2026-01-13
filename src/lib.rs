@@ -464,8 +464,8 @@ pub enum AnnexError {
     #[error("Resource is already under foreign jurisdiction")]
     AlreadyExiled,
     /// SMT verification failed.
-    #[error("Verification failed: {0}")]
-    VerificationFailed(String),
+    #[error("Verification failed: {reason}")]
+    VerificationFailed { reason: String },
     /// Prover encountered an error.
     #[error("Prover error: {0}")]
     ProverError(String),
@@ -692,7 +692,9 @@ mod tests {
         let e = AnnexError::AlreadyExiled;
         assert!(e.to_string().contains("foreign jurisdiction"));
 
-        let e = AnnexError::VerificationFailed("test".to_string());
+        let e = AnnexError::VerificationFailed {
+            reason: "test".to_string(),
+        };
         assert!(e.to_string().contains("test"));
     }
 
