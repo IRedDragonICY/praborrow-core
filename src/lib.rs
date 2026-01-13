@@ -136,6 +136,7 @@ impl<T> Sovereign<T> {
     /// Once annexed, the resource cannot be accessed locally.
     /// Access attempts will result in a Sovereignty Violation.
     #[must_use = "Annexation result should be checked"]
+    #[tracing::instrument(skip(self))]
     pub fn annex(&self) -> Result<(), AnnexError> {
         let current = self.state.load(Ordering::SeqCst);
         if current == SovereignState::Exiled as u8 {
@@ -229,6 +230,7 @@ impl<T> Sovereign<T> {
     /// resource.repatriate(token);
     /// assert!(resource.is_domestic());
     /// ```
+    #[tracing::instrument(skip(self, _token))]
     pub fn repatriate(&self, _token: RepatriationToken) {
         let previous = self
             .state
