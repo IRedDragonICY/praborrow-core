@@ -5,7 +5,7 @@ fn test_sovereign_debug() {
     let debug_str = format!("{:?}", s);
     assert!(debug_str.contains("Domestic"));
     assert!(debug_str.contains("42"));
-    
+
     s.annex().unwrap();
     let debug_str_exiled = format!("{:?}", s);
     assert!(debug_str_exiled.contains("Exiled"));

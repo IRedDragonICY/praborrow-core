@@ -656,7 +656,6 @@ mod tests {
         s.annex().unwrap();
         assert!(s.is_exiled());
 
-
         // SAFETY: In test context, we control both sides
         // SAFETY: In test context, we control both sides
         let token = unsafe { RepatriationToken::new(100) };
