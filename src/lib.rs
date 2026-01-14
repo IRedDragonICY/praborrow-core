@@ -49,6 +49,8 @@ impl core::fmt::Display for SovereignState {
 /// by trusted system components (like the lease manager) that can guarantee the
 /// resource is safe to reclaim.
 pub struct RepatriationToken {
+    /// ID of the lease holder returning the resource
+    pub(crate) holder_id: u128,
     _private: (),
 }
 
@@ -61,8 +63,11 @@ impl RepatriationToken {
     /// repatriate a sovereign resource. The caller must guarantee that the
     /// resource is indeed back in domestic jurisdiction and no longer accessed
     /// remotely.
-    pub unsafe fn new() -> Self {
-        Self { _private: () }
+    pub unsafe fn new(holder_id: u128) -> Self {
+        Self {
+            holder_id,
+            _private: (),
+        }
     }
 }
 
@@ -77,6 +82,7 @@ pub struct Sovereign<T> {
 /// Error enforcing constitutional invariants.
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConstitutionError {
     #[error("Invariant violated: {expression}. Values: {values:?}")]
     InvariantViolation {
@@ -226,12 +232,12 @@ impl<T> Sovereign<T> {
     /// // ... resource is sent to foreign node and returned ...
     ///
     /// // SAFETY: construction of token implies safety verification
-    /// let token = unsafe { RepatriationToken::new() };
+    /// let token = unsafe { RepatriationToken::new(123) };
     /// resource.repatriate(token);
     /// assert!(resource.is_domestic());
     /// ```
-    #[tracing::instrument(skip(self, _token))]
-    pub fn repatriate(&self, _token: RepatriationToken) {
+    #[tracing::instrument(skip(self, token), fields(holder_id = token.holder_id))]
+    pub fn repatriate(&self, token: RepatriationToken) {
         let previous = self
             .state
             .swap(SovereignState::Domestic as u8, Ordering::SeqCst);
@@ -240,6 +246,7 @@ impl<T> Sovereign<T> {
             tracing::debug!(
                 from = "Exiled",
                 to = "Domestic",
+                holder_id = token.holder_id,
                 "Resource repatriated to domestic jurisdiction"
             );
         }
@@ -593,6 +600,9 @@ pub trait VerifiedAnnex<T> {
 // Users should use the `praborrow` facade crate for full functionality.
 
 #[cfg(test)]
+mod debug_test;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -646,9 +656,10 @@ mod tests {
         s.annex().unwrap();
         assert!(s.is_exiled());
 
+
         // SAFETY: In test context, we control both sides
         // SAFETY: In test context, we control both sides
-        let token = unsafe { RepatriationToken::new() };
+        let token = unsafe { RepatriationToken::new(100) };
         s.repatriate(token);
         assert!(s.is_domestic());
 
