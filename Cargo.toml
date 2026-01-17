@@ -12,8 +12,9 @@ categories = ["concurrency", "memory-management", "network-programming"]
 [features]
 default = ["std"]
 std = []
+serde = ["dep:serde"]
 
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, optional = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
